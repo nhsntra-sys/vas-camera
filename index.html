@@ -97,7 +97,8 @@ input[type=file]{display:none}
   <label class="chk"><input type="checkbox" id="showCode" checked> Hiện mã xác thực dọc mép phải</label>
   <label class="chk"><input type="checkbox" id="showGps"> Hiện toạ độ GPS</label>
   <div class="row"><button class="btn" id="pickLib">Gắn khung cho ảnh có sẵn</button></div>
-  <p class="small">Ảnh lưu vào thư mục Tải xuống (Download), xem được trong Bộ sưu tập / Google Photos.</p>
+  <p class="small" id="saveInfo">Ảnh lưu vào thư mục Tải xuống (Download), xem được trong Bộ sưu tập / Google Photos.</p>
+  <a class="btn or" id="apkLink" href="https://github.com/nhsntra-sys/vas-camera/releases/latest/download/VAS-Camera.apk" style="display:flex;align-items:center;justify-content:center;text-decoration:none">⬇ Cài app Android – lưu thẳng vào Bộ sưu tập</a>
 </div></div>
 
 <div class="view" id="view"><img id="vimg" alt="Ảnh vừa chụp"><div class="row"><button class="btn" id="vSave">Lưu lại</button><button class="btn" id="vShare">Chia sẻ</button><button class="btn or" id="vClose">Chụp tiếp</button></div></div>
@@ -212,7 +213,7 @@ async function startCam(){
   $('msg').classList.remove('on');
   if(stream)stream.getTracks().forEach(t=>t.stop());
   try{
-    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:facing},width:{ideal:4096},height:{ideal:4096}}});
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:1440}}});
     vid.srcObject=stream;await vid.play();fit();
   }catch(e){$('msgTxt').textContent=location.protocol==='https:'?'Hãy cho phép ứng dụng dùng camera (biểu tượng ổ khoá trên thanh địa chỉ → Quyền) rồi bấm Thử lại.':'Camera chỉ chạy khi mở qua link https.';$('msg').classList.add('on')}
 }
@@ -227,14 +228,16 @@ const ro=new ResizeObserver(fit);ro.observe($('stage'));vid.addEventListener('lo
 setInterval(drawPreview,1000);
 
 function fname(d){return `VAS_${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.jpg`}
+const NATIVE=!!(window.VASNative&&window.VASNative.saveImage);
 function save(blob,name){
+  if(NATIVE){const fr=new FileReader();fr.onload=()=>{const r=window.VASNative.saveImage(String(fr.result).split(',')[1],name);toast(r==='ok'?'Đã lưu vào Bộ sưu tập':'Lỗi lưu ảnh: '+r)};fr.readAsDataURL(blob);return}
   const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000);
 }
 function finish(cv,d){
   cv.toBlob(b=>{
     lastBlob=b;lastName=fname(d);if(lastUrl)URL.revokeObjectURL(lastUrl);lastUrl=URL.createObjectURL(b);
     $('thumb').style.backgroundImage=`url(${lastUrl})`;
-    if($('autoSave').checked){save(b,lastName);toast('Đã lưu ảnh')}else{$('vimg').src=lastUrl;$('view').classList.add('on')}
+    if($('autoSave').checked){save(b,lastName);if(!NATIVE)toast('Đã lưu ảnh')}else{$('vimg').src=lastUrl;$('view').classList.add('on')}
     code=makeCode();drawPreview();
   },'image/jpeg',0.92);
 }
@@ -260,7 +263,7 @@ $('pickLib').onclick=()=>$('fLib').click();
 }));
 $('thumb').onclick=()=>{if(!lastUrl)return;$('vimg').src=lastUrl;$('view').classList.add('on')};
 $('vClose').onclick=()=>$('view').classList.remove('on');
-$('vSave').onclick=()=>{if(lastBlob){save(lastBlob,lastName);toast('Đã lưu ảnh')}};
+$('vSave').onclick=()=>{if(lastBlob){save(lastBlob,lastName);if(!NATIVE)toast('Đã lưu ảnh')}};
 $('vShare').onclick=async()=>{if(!lastBlob)return;const f=new File([lastBlob],lastName,{type:'image/jpeg'});try{await navigator.share({files:[f]})}catch(e){if(e.name!=='AbortError')toast('Máy không hỗ trợ chia sẻ')}};
 $('setBtn').onclick=()=>$('sheet').classList.add('on');
 $('locBtn').onclick=()=>$('sheet').classList.add('on');
@@ -268,6 +271,8 @@ $('closeSet').onclick=()=>$('sheet').classList.remove('on');
 $('sheet').addEventListener('click',e=>{if(e.target===$('sheet'))$('sheet').classList.remove('on')});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null}else startCam()});
 
+if(NATIVE){$('apkLink').style.display='none';$('saveInfo').textContent='Ảnh lưu thẳng vào Bộ sưu tập (album Camera).'}
+window.vasPermsChanged=()=>{startCam();startGeo()};
 refreshLoc();
 Promise.all(['400 40px RC','500 40px BC'].map(f=>document.fonts.load(f,'0123456789ThángChủ nhật'))).catch(()=>{}).then(drawPreview);
 logo.onload=drawPreview;

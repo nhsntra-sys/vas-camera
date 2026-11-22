@@ -1,0 +1,22 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'vn.vas.camera'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'vn.vas.camera'
+        minSdk 24
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('VCODE') ?: '1')
+        versionName "1.0." + (System.getenv('VCODE') ?: '1')
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('KS_FILE') ?: 'none.jks')
+            storePassword System.getenv('KS_PASS')
+            keyAlias 'vas'
+            keyPassword System.getenv('KS_PASS')
+        }
+    }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.release } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
