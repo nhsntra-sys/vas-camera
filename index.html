@@ -223,7 +223,24 @@ function fit(){
   vf.style.width=Math.round(vw*k)+'px';vf.style.height=Math.round(vh*k)+'px';
   const dpr=Math.min(2,window.devicePixelRatio||1);ov.width=Math.round(vw*k*dpr);ov.height=Math.round(vh*k*dpr);drawPreview();
 }
-function drawPreview(){const c=ov.getContext('2d');c.clearRect(0,0,ov.width,ov.height);if(ov.width)drawOverlay(c,ov.width,ov.height,new Date(),code)}
+/* ---------- xoay ngang theo cảm biến ---------- */
+let devAng=0;
+const scrAng=()=>{try{return (screen.orientation&&screen.orientation.angle)||((window.orientation||0)+360)%360}catch(e){return 0}};
+const effRot=()=>(devAng-scrAng()+360)%360;
+window.addEventListener('devicemotion',e=>{
+  const g=e.accelerationIncludingGravity;if(!g||g.x==null)return;
+  const x=g.x,y=g.y;let a=devAng;
+  if(Math.abs(x)>Math.abs(y)+2&&Math.abs(x)>5)a=x>0?90:270;
+  else if(Math.abs(y)>Math.abs(x)+2&&Math.abs(y)>5)a=y>0?0:devAng;
+  if(a!==devAng){devAng=a;drawPreview()}
+});
+window.addEventListener('orientationchange',()=>setTimeout(fit,300));
+function drawRot(c,W,H,rot,d,cd){
+  if(rot===90){c.save();c.translate(W,0);c.rotate(Math.PI/2);drawOverlay(c,H,W,d,cd);c.restore()}
+  else if(rot===270){c.save();c.translate(0,H);c.rotate(-Math.PI/2);drawOverlay(c,H,W,d,cd);c.restore()}
+  else drawOverlay(c,W,H,d,cd);
+}
+function drawPreview(){const c=ov.getContext('2d');c.clearRect(0,0,ov.width,ov.height);if(ov.width)drawRot(c,ov.width,ov.height,effRot(),new Date(),code)}
 const ro=new ResizeObserver(fit);ro.observe($('stage'));vid.addEventListener('loadedmetadata',fit);vid.addEventListener('resize',fit);
 setInterval(drawPreview,1000);
 
@@ -243,9 +260,11 @@ function finish(cv,d){
 }
 $('shut').onclick=()=>{
   if(!stream||!vid.videoWidth){$('fCam').click();return}
-  const d=new Date(),W=vid.videoWidth,H=vid.videoHeight;
-  const cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');
-  c.drawImage(vid,0,0,W,H);drawOverlay(c,W,H,d,code);
+  const d=new Date(),W=vid.videoWidth,H=vid.videoHeight,rot=effRot();
+  const cv=document.createElement('canvas');const c=cv.getContext('2d');
+  if(rot===90){cv.width=H;cv.height=W;c.translate(0,W);c.rotate(-Math.PI/2);c.drawImage(vid,0,0,W,H);c.setTransform(1,0,0,1,0,0);drawOverlay(c,H,W,d,code)}
+  else if(rot===270){cv.width=H;cv.height=W;c.translate(H,0);c.rotate(Math.PI/2);c.drawImage(vid,0,0,W,H);c.setTransform(1,0,0,1,0,0);drawOverlay(c,H,W,d,code)}
+  else{cv.width=W;cv.height=H;c.drawImage(vid,0,0,W,H);drawOverlay(c,W,H,d,code)}
   const f=$('flash');f.classList.remove('on');void f.offsetWidth;f.classList.add('on');
   if(navigator.vibrate)try{navigator.vibrate(30)}catch(e){}
   finish(cv,d);
