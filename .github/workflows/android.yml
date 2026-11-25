@@ -15,13 +15,21 @@ jobs:
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.9' }
-      - name: Create signing key (kept only on the build machine)
+      - name: Signing key
+        env:
+          KS_B64: ${{ secrets.KS_B64 }}
+          KS_PASS_SECRET: ${{ secrets.KS_PASS }}
         run: |
-          KS_PASS=$(openssl rand -hex 16)
-          echo "::add-mask::$KS_PASS"
-          echo "KS_PASS=$KS_PASS" >> $GITHUB_ENV
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS_SECRET" ]; then
+            echo "$KS_B64" | base64 -d > $RUNNER_TEMP/release.jks
+            echo "KS_PASS=$KS_PASS_SECRET" >> $GITHUB_ENV
+          else
+            KS_PASS=$(openssl rand -hex 16)
+            echo "::add-mask::$KS_PASS"
+            echo "KS_PASS=$KS_PASS" >> $GITHUB_ENV
+            keytool -genkeypair -keystore $RUNNER_TEMP/release.jks -alias vas -keyalg RSA -keysize 2048 -validity 10000 -storepass $KS_PASS -keypass $KS_PASS -dname "CN=VAS Energy Technology, O=VAS, C=VN"
+          fi
           echo "KS_FILE=$RUNNER_TEMP/release.jks" >> $GITHUB_ENV
-          keytool -genkeypair -keystore $RUNNER_TEMP/release.jks -alias vas -keyalg RSA -keysize 2048 -validity 10000 -storepass $KS_PASS -keypass $KS_PASS -dname "CN=VAS Energy Technology, O=VAS, C=VN"
       - name: Build
         working-directory: android
         env: { VCODE: '${{ github.run_number }}' }
