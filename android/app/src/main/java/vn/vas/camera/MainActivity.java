@@ -142,6 +142,7 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
 
     private ActivityResultLauncher<String[]> permLauncher;
     private ActivityResultLauncher<String> pickLauncher;
+    private ActivityResultLauncher<String> editLauncher;
 
     // ------------------------------------------------------------------ vòng đời
     @Override
@@ -162,6 +163,10 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
         });
         pickLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
             if (uri != null) stampExisting(uri);
+        });
+
+        editLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            if (uri != null) openEditor(uri);
         });
 
         orient = new OrientationEventListener(this) {
@@ -764,79 +769,53 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
         m.postTranslate(W / 2f, H / 2f);
         c.drawBitmap(src, m, new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG));
         src.recycle();
+
+        // Cất bản sạch của vùng khung để sau này bật/tắt khung được
+        VasMeta meta = null;
+        if (sp.getBoolean("editable", true)) {
+            try {
+                meta = new VasMeta();
+                meta.data = d.copy();
+                meta.width = W;
+                meta.height = H;
+                for (android.graphics.Rect r : Stamp.regions(W, H, d)) {
+                    if (r.width() <= 0 || r.height() <= 0) continue;
+                    Bitmap cr = Bitmap.createBitmap(out, r.left, r.top, r.width(), r.height());
+                    ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                    cr.compress(Bitmap.CompressFormat.JPEG, 95, bo);
+                    if (cr != out) cr.recycle();
+                    meta.rects.add(r);
+                    meta.crops.add(bo.toByteArray());
+                }
+            } catch (Throwable t) { meta = null; }
+        }
         Stamp.draw(c, W, H, d);
 
         File tmp = new File(getCacheDir(), "shot.jpg");
         try (FileOutputStream fo = new FileOutputStream(tmp)) { out.compress(Bitmap.CompressFormat.JPEG, jpegQ(), fo); }
         final Bitmap small = Bitmap.createScaledBitmap(out, Math.max(1, W / 8), Math.max(1, H / 8), true);
         out.recycle();
-        writeExif(tmp, d.time, gps);
-        String name = "VAS_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date(d.time)) + ".jpg";
-        Uri u = saveToGallery(tmp, name, d.time);
+        Stamp.Data ex = d.copy();
+        if (gps != null) { ex.hasGps = true; ex.lat = gps.getLatitude(); ex.lon = gps.getLongitude(); }
+        Store.writeExif(tmp, d.time, ex);
+        if (meta != null) try { Store.appendMeta(tmp, meta); } catch (Throwable ignored) { }
+        Uri u = Store.saveToGallery(this, tmp, Store.fileName(d.time, ""), d.time);
         tmp.delete();
         main.post(() -> {
             if (u != null) { lastUri = u; thumb.setImageBitmap(small); toast("Đã lưu vào Bộ sưu tập"); }
         });
     }
 
-    private void writeExif(File f, long time, Location gps) {
-        try {
-            ExifInterface ex = new ExifInterface(f.getAbsolutePath());
-            String t = new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(new Date(time));
-            ex.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, t);
-            ex.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, t);
-            ex.setAttribute(ExifInterface.TAG_DATETIME, t);
-            ex.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER);
-            ex.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL);
-            ex.setAttribute(ExifInterface.TAG_SOFTWARE, "VAS Camera");
-            ex.setAttribute(ExifInterface.TAG_ORIENTATION, String.valueOf(ExifInterface.ORIENTATION_NORMAL));
-            if (gps != null) ex.setGpsInfo(gps);
-            ex.saveAttributes();
-        } catch (Throwable ignored) { }
-    }
-
-    private Uri saveToGallery(File f, String name, long time) throws Exception {
-        if (Build.VERSION.SDK_INT >= 29) {
-            ContentResolver cr = getContentResolver();
-            ContentValues v = new ContentValues();
-            v.put(MediaStore.Images.Media.DISPLAY_NAME, name);
-            v.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-            v.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/Camera");
-            v.put(MediaStore.Images.Media.DATE_TAKEN, time);
-            v.put(MediaStore.Images.Media.IS_PENDING, 1);
-            Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
-            if (uri == null) throw new Exception("không tạo được ảnh trong Bộ sưu tập");
-            try (OutputStream os = cr.openOutputStream(uri); InputStream is = new FileInputStream(f)) {
-                byte[] b = new byte[65536];
-                int n;
-                while ((n = is.read(b)) > 0) os.write(b, 0, n);
-            }
-            v.clear();
-            v.put(MediaStore.Images.Media.IS_PENDING, 0);
-            cr.update(uri, v, null, null);
-            return uri;
-        } else {
-            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "Camera");
-            dir.mkdirs();
-            File dst = new File(dir, name);
-            try (InputStream is = new FileInputStream(f); OutputStream os = new FileOutputStream(dst)) {
-                byte[] b = new byte[65536];
-                int n;
-                while ((n = is.read(b)) > 0) os.write(b, 0, n);
-            }
-            MediaScannerConnection.scanFile(this, new String[]{dst.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
-            return Uri.fromFile(dst);
-        }
-    }
-
     private void openLast() {
         if (lastUri == null) return;
-        try {
-            Intent i = new Intent(Intent.ACTION_VIEW);
-            i.setDataAndType(lastUri, "image/jpeg");
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(i);
-        } catch (Throwable t) { toast("Mở Bộ sưu tập để xem ảnh"); }
+        openEditor(lastUri);
+    }
+
+    private void openEditor(Uri u) {
+        Intent i = new Intent(this, EditorActivity.class);
+        i.setData(u);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        startActivity(i);
     }
 
     /** Gắn khung cho ảnh có sẵn: giờ lấy từ EXIF của ảnh nếu có. */
@@ -898,7 +877,8 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
         CheckBox cCode = check("Hiện mã xác thực dọc mép phải", sp.getBoolean("showCode", true));
         CheckBox cGps = check("Hiện toạ độ GPS", sp.getBoolean("showGps", false));
         CheckBox cSnd = check("Âm thanh khi chụp", sp.getBoolean("sound", true));
-        f.addView(cCode); f.addView(cGps); f.addView(cSnd);
+        CheckBox cEdit = check("Cho phép bật/tắt khung sau khi chụp", sp.getBoolean("editable", true));
+        f.addView(cCode); f.addView(cGps); f.addView(cSnd); f.addView(cEdit);
 
         f.addView(label("Chất lượng ảnh"));
         RadioGroup gq = new RadioGroup(this);
@@ -915,6 +895,9 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
         ga.check("169".equals(sp.getString("aspect", "43")) ? 201 : 200);
         f.addView(ga);
 
+        Button editBtn = new Button(this);
+        editBtn.setText("Bật/tắt khung ảnh đã chụp");
+        f.addView(editBtn);
         Button pick = new Button(this);
         pick.setText("Gắn khung cho ảnh có sẵn");
         f.addView(pick);
@@ -939,6 +922,7 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
                             .putBoolean("showCode", cCode.isChecked())
                             .putBoolean("showGps", cGps.isChecked())
                             .putBoolean("sound", cSnd.isChecked())
+                            .putBoolean("editable", cEdit.isChecked())
                             .putInt("quality", Math.max(0, q))
                             .putString("aspect", asp)
                             .apply();
@@ -956,6 +940,7 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
             dlg.dismiss();
         });
         pick.setOnClickListener(v -> { dlg.dismiss(); pickLauncher.launch("image/*"); });
+        editBtn.setOnClickListener(v -> { dlg.dismiss(); editLauncher.launch("image/*"); });
         dlg.show();
     }
 
