@@ -227,7 +227,7 @@ public class EditorActivity extends Activity {
                 if (m == null) {
                     main.post(() -> new AlertDialog.Builder(this)
                             .setTitle("Không bật/tắt khung được")
-                            .setMessage("Ảnh này không có dữ liệu khung. Chỉ ảnh chụp bằng VAS Camera 2.1 trở lên mới bật/tắt được. Ảnh đã gửi qua Zalo, đã sửa bằng app khác, hoặc chụp khi tắt tuỳ chọn \"Cho phép bật/tắt khung\" cũng không được.")
+                            .setMessage("Ảnh này không có dữ liệu khung. Chỉ ảnh chụp từ bản VAS Camera có tính năng bật/tắt khung trở đi mới làm được. Ảnh đã gửi qua Zalo, đã sửa bằng app khác, hoặc chụp khi tắt tuỳ chọn \"Cho phép bật/tắt khung\" cũng không được.")
                             .setPositiveButton("Đóng", (x, y) -> finish())
                             .setOnCancelListener(x -> finish())
                             .show());
