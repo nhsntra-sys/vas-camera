@@ -161,8 +161,8 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
             else toast("Cần cho phép camera để chụp ảnh");
             loc.start();
         });
-        pickLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri != null) stampExisting(uri);
+        pickLauncher = registerForActivityResult(new ActivityResultContracts.GetMultipleContents(), uris -> {
+            if (uris != null && !uris.isEmpty()) stampExisting(new ArrayList<>(uris));
         });
 
         editLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
@@ -299,6 +299,9 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
         tlp.setMargins(dp(6), 0, dp(6), 0);
         tools.addView(flashBtn, tlp);
         tools.addView(modeBtn, new LinearLayout.LayoutParams(tlp));
+        TextView lib = smallBtn("🖼 Ảnh có sẵn");
+        lib.setOnClickListener(v -> pickLauncher.launch("image/*"));
+        tools.addView(lib, new LinearLayout.LayoutParams(tlp));
         root.addView(tools);
 
         // Khung ngắm
@@ -818,35 +821,45 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
         startActivity(i);
     }
 
-    /** Gắn khung cho ảnh có sẵn: giờ lấy từ EXIF của ảnh nếu có. */
-    private void stampExisting(Uri uri) {
+    /** Gắn khung cho ảnh có sẵn. Mặc định dùng giờ hiện tại; tuỳ chọn dùng giờ chụp gốc trong ảnh. */
+    private void stampExisting(List<Uri> uris) {
         final Location gps = loc.last;
+        final boolean useOriginal = sp.getBoolean("libOrigTime", false);
+        toast(uris.size() > 1 ? "Đang gắn khung " + uris.size() + " ảnh…" : "Đang gắn khung…");
         io.execute(() -> {
-            try {
-                byte[] data;
-                try (InputStream is = getContentResolver().openInputStream(uri)) {
-                    ByteArrayOutputStream bo = new ByteArrayOutputStream();
-                    byte[] b = new byte[65536];
-                    int n;
-                    while ((n = is.read(b)) > 0) bo.write(b, 0, n);
-                    data = bo.toByteArray();
-                }
-                long time = System.currentTimeMillis();
-                int deg = 0;
+            int ok = 0;
+            for (Uri uri : uris) {
                 try {
-                    ExifInterface ex = new ExifInterface(new java.io.ByteArrayInputStream(data));
-                    deg = ex.getRotationDegrees();
-                    String dt = ex.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL);
-                    if (dt == null) dt = ex.getAttribute(ExifInterface.TAG_DATETIME);
-                    if (dt != null) {
-                        Date pd = new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).parse(dt);
-                        if (pd != null) time = pd.getTime();
+                    byte[] data;
+                    try (InputStream is = getContentResolver().openInputStream(uri)) {
+                        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                        byte[] b = new byte[65536];
+                        int n;
+                        while ((n = is.read(b)) > 0) bo.write(b, 0, n);
+                        data = bo.toByteArray();
                     }
-                } catch (Throwable ignored) { }
-                Stamp.Data d = snapshot(time);
-                code = Stamp.newCode();
-                process(decode(data, targetSize()), deg, false, d, gps);
-            } catch (Throwable t) { toast("Không gắn khung được: " + t.getMessage()); }
+                    long time = System.currentTimeMillis();
+                    int deg = 0;
+                    try {
+                        ExifInterface ex = new ExifInterface(new java.io.ByteArrayInputStream(data));
+                        deg = ex.getRotationDegrees();
+                        if (useOriginal) {
+                            String dt = ex.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL);
+                            if (dt == null) dt = ex.getAttribute(ExifInterface.TAG_DATETIME);
+                            if (dt != null) {
+                                Date pd = new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).parse(dt);
+                                if (pd != null) time = pd.getTime();
+                            }
+                        }
+                    } catch (Throwable ignored) { }
+                    code = Stamp.newCode();
+                    Stamp.Data d = snapshot(time);
+                    process(decode(data, targetSize()), deg, false, d, gps);
+                    ok++;
+                } catch (Throwable t) { toast("Không gắn khung được 1 ảnh: " + t.getMessage()); }
+            }
+            code = Stamp.newCode();
+            if (uris.size() > 1) toast("Đã gắn khung " + ok + "/" + uris.size() + " ảnh, lưu vào Bộ sưu tập");
         });
     }
 
@@ -878,7 +891,8 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
         CheckBox cGps = check("Hiện toạ độ GPS", sp.getBoolean("showGps", false));
         CheckBox cSnd = check("Âm thanh khi chụp", sp.getBoolean("sound", true));
         CheckBox cEdit = check("Cho phép bật/tắt khung sau khi chụp", sp.getBoolean("editable", true));
-        f.addView(cCode); f.addView(cGps); f.addView(cSnd); f.addView(cEdit);
+        CheckBox cOrig = check("Ảnh có sẵn: dùng giờ chụp gốc của ảnh (mặc định: giờ hiện tại)", sp.getBoolean("libOrigTime", false));
+        f.addView(cCode); f.addView(cGps); f.addView(cSnd); f.addView(cEdit); f.addView(cOrig);
 
         f.addView(label("Chất lượng ảnh"));
         RadioGroup gq = new RadioGroup(this);
@@ -923,6 +937,7 @@ public class MainActivity extends ComponentActivity implements Loc.Listener {
                             .putBoolean("showGps", cGps.isChecked())
                             .putBoolean("sound", cSnd.isChecked())
                             .putBoolean("editable", cEdit.isChecked())
+                            .putBoolean("libOrigTime", cOrig.isChecked())
                             .putInt("quality", Math.max(0, q))
                             .putString("aspect", asp)
                             .apply();
